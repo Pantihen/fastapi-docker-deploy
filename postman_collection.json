@@ -1,0 +1,453 @@
+{
+  "info": {
+    "name": "Advanced API — Celery + GraphQL",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://127.0.0.1:8000"
+    },
+    {
+      "key": "userToken",
+      "value": ""
+    },
+    {
+      "key": "adminToken",
+      "value": ""
+    },
+    {
+      "key": "taskId",
+      "value": ""
+    }
+  ],
+  "item": [
+    {
+      "name": "REST — аутентификация и роли",
+      "item": [
+        {
+          "name": "1. Регистрация (201)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('201 Created', () => pm.response.to.have.status(201));",
+                  "pm.test('приветственное письмо в очереди', () => pm.expect(pm.response.json().welcome_email_task_id).to.be.a('string'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"user@example.com\",\n  \"password\": \"Password123\"\n}"
+            },
+            "url": "{{baseUrl}}/auth/register"
+          }
+        },
+        {
+          "name": "2. Повторная регистрация (409)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('409 Conflict', () => pm.response.to.have.status(409));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"user@example.com\",\n  \"password\": \"Password123\"\n}"
+            },
+            "url": "{{baseUrl}}/auth/register"
+          }
+        },
+        {
+          "name": "3. Вход user (200 + токен)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "pm.collectionVariables.set('userToken', pm.response.json().access_token);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "body": {
+              "mode": "urlencoded",
+              "urlencoded": [
+                {
+                  "key": "username",
+                  "value": "user@example.com"
+                },
+                {
+                  "key": "password",
+                  "value": "Password123"
+                }
+              ]
+            },
+            "url": "{{baseUrl}}/auth/login"
+          }
+        },
+        {
+          "name": "4. /users/me без токена (401)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('401 Unauthorized', () => pm.response.to.have.status(401));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/users/me"
+          }
+        },
+        {
+          "name": "5. /users/me с токеном (200)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{userToken}}"
+              }
+            ],
+            "url": "{{baseUrl}}/users/me"
+          }
+        },
+        {
+          "name": "6. /admin/users от user (403)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('403 Forbidden', () => pm.response.to.have.status(403));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{userToken}}"
+              }
+            ],
+            "url": "{{baseUrl}}/admin/users"
+          }
+        },
+        {
+          "name": "7a. Вход admin (200 + токен)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "pm.collectionVariables.set('adminToken', pm.response.json().access_token);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "body": {
+              "mode": "urlencoded",
+              "urlencoded": [
+                {
+                  "key": "username",
+                  "value": "admin@example.com"
+                },
+                {
+                  "key": "password",
+                  "value": "Admin12345"
+                }
+              ]
+            },
+            "url": "{{baseUrl}}/auth/login"
+          }
+        },
+        {
+          "name": "7b. /admin/users от admin (200)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              }
+            ],
+            "url": "{{baseUrl}}/admin/users"
+          }
+        },
+        {
+          "name": "8. Rate limit — запустить 6 раз подряд (6-й → 429)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('401 (неверный пароль) или 429 (лимит)', () => pm.expect(pm.response.code).to.be.oneOf([401, 429]));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "body": {
+              "mode": "urlencoded",
+              "urlencoded": [
+                {
+                  "key": "username",
+                  "value": "user@example.com"
+                },
+                {
+                  "key": "password",
+                  "value": "wrong-password"
+                }
+              ]
+            },
+            "url": "{{baseUrl}}/auth/login"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Celery — фоновая задача",
+      "item": [
+        {
+          "name": "C1. Поставить отправку письма в очередь (202, мгновенно)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('202 Accepted', () => pm.response.to.have.status(202));",
+                  "pm.test('ответ быстрее 500 мс', () => pm.expect(pm.response.responseTime).to.be.below(500));",
+                  "pm.collectionVariables.set('taskId', pm.response.json().task_id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{userToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"subject\": \"Отчёт\",\n  \"body\": \"Ваш отчёт готов\"\n}"
+            },
+            "url": "{{baseUrl}}/tasks/send-email"
+          }
+        },
+        {
+          "name": "C2. Статус задачи (сразу — PENDING/STARTED, через 10 с — SUCCESS)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const b = pm.response.json();",
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "pm.test('статус: ' + b.status, () => pm.expect(['PENDING','STARTED','SUCCESS']).to.include(b.status));",
+                  "if (b.status === 'SUCCESS') pm.test('есть результат', () => pm.expect(b.result.sent).to.eql(true));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{userToken}}"
+              }
+            ],
+            "url": "{{baseUrl}}/tasks/{{taskId}}"
+          }
+        }
+      ]
+    },
+    {
+      "name": "GraphQL",
+      "item": [
+        {
+          "name": "G1. users — только email",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('без ошибок', () => pm.expect(pm.response.json().errors).to.be.undefined);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              }
+            ],
+            "body": {
+              "mode": "graphql",
+              "graphql": {
+                "query": "{\n  users {\n    email\n  }\n}",
+                "variables": ""
+              }
+            },
+            "url": "{{baseUrl}}/graphql"
+          }
+        },
+        {
+          "name": "G2. users — полный набор полей",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('без ошибок', () => pm.expect(pm.response.json().errors).to.be.undefined);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              }
+            ],
+            "body": {
+              "mode": "graphql",
+              "graphql": {
+                "query": "{\n  users {\n    id\n    email\n    role\n    createdAt\n  }\n}",
+                "variables": ""
+              }
+            },
+            "url": "{{baseUrl}}/graphql"
+          }
+        },
+        {
+          "name": "G3. me + usersStats одним запросом",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('без ошибок', () => pm.expect(pm.response.json().errors).to.be.undefined);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              }
+            ],
+            "body": {
+              "mode": "graphql",
+              "graphql": {
+                "query": "{\n  me { email role }\n  usersStats { total admins users }\n}",
+                "variables": ""
+              }
+            },
+            "url": "{{baseUrl}}/graphql"
+          }
+        },
+        {
+          "name": "G4. users от роли user (ошибка прав)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('ошибка прав в errors', () => pm.expect(pm.response.json().errors[0].message).to.include('admin'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{userToken}}"
+              }
+            ],
+            "body": {
+              "mode": "graphql",
+              "graphql": {
+                "query": "{\n  users {\n    email\n  }\n}",
+                "variables": ""
+              }
+            },
+            "url": "{{baseUrl}}/graphql"
+          }
+        }
+      ]
+    }
+  ]
+}
