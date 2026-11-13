@@ -14,9 +14,7 @@ services:
     # На бесплатном тарифе нет Background Worker, поэтому Celery-воркер запускается
     # в том же контейнере, что и API (--pool=solo — один процесс, экономит память).
     # Uvicorn слушает $PORT, который задаёт Render.
-    dockerCommand: >-
-      sh -c "celery -A app.celery_app worker --loglevel=info --pool=solo &
-      exec uvicorn app.main:app --host 0.0.0.0 --port $PORT --proxy-headers --forwarded-allow-ips='*'"
+    dockerCommand: sh scripts/start-web-and-worker.sh
     healthCheckPath: /health
     autoDeploy: true
     envVars:
