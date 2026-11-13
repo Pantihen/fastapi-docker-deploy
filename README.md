@@ -1,20 +1,20 @@
 # FastAPI App: Docker, CI/CD, деплой
 
 FastAPI-приложение из прошлых разделов курса (JWT и роли, фоновые задачи Celery, GraphQL),
-упакованное в Docker вместе с PostgreSQL и Redis. Тесты запускаются в GitHub Actions, приложение развёрнуто на Render.
+упакованное в Docker вместе с PostgreSQL и Redis. Тесты запускаются в GitHub Actions.
 
-## 🌐 Публичный адрес
+## Статус
 
 | | |
 |---|---|
-| Приложение | **https://ВАШ-АДРЕС.onrender.com** |
-| Swagger UI | https://ВАШ-АДРЕС.onrender.com/docs |
-| Health-check | https://ВАШ-АДРЕС.onrender.com/health |
-| GraphiQL | https://ВАШ-АДРЕС.onrender.com/graphql |
-| CI | https://github.com/Pantihen/fastapi-docker-deploy/actions |
+| Репозиторий | https://github.com/Pantihen/fastapi-docker-deploy |
+| CI (GitHub Actions) | https://github.com/Pantihen/fastapi-docker-deploy/actions |
+| Публичный деплой | **не развёрнут** |
 
-> Приложение работает на бесплатном тарифе Render и засыпает после 15 минут без запросов.
-> Первое открытие после простоя занимает около минуты, дальше всё работает быстро.
+Конфигурация деплоя на Render подготовлена (`render.yaml`, раздел «Деплой на Render» ниже)
+и проверена по официальной JSON-схеме Render. Команда запуска контейнера для Render проверена локально.
+Приложение не развёрнуто: на аккаунте Render бесплатные PostgreSQL и Key Value уже заняты
+другим проектом, а на бесплатном тарифе разрешено только по одному такому ресурсу.
 
 ---
 
