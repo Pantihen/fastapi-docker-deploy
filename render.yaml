@@ -1,0 +1,63 @@
+# Render Blueprint: приложение + PostgreSQL + Redis (Key Value) на бесплатном тарифе.
+# Деплой: Render Dashboard → New → Blueprint → выбрать этот репозиторий → Apply.
+
+services:
+  - type: web
+    name: fastapi-docker-deploy
+    runtime: docker
+    plan: free
+    region: frankfurt
+    branch: main
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    # На бесплатном тарифе нет Background Worker, поэтому Celery-воркер запускается
+    # в том же контейнере, что и API (--pool=solo — один процесс, экономит память).
+    # Uvicorn слушает $PORT, который задаёт Render.
+    dockerCommand: >-
+      sh -c "celery -A app.celery_app worker --loglevel=info --pool=solo &
+      exec uvicorn app.main:app --host 0.0.0.0 --port $PORT --proxy-headers --forwarded-allow-ips='*'"
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      # Внутренние адреса сервисов Render (аналог имён сервисов в docker compose)
+      - key: DATABASE_URL
+        fromDatabase:
+          name: fastapi-db
+          property: connectionString
+      - key: CELERY_BROKER_URL
+        fromService:
+          type: keyvalue
+          name: fastapi-redis
+          property: connectionString
+      - key: CELERY_RESULT_BACKEND
+        fromService:
+          type: keyvalue
+          name: fastapi-redis
+          property: connectionString
+      - key: SECRET_KEY
+        generateValue: true
+      # Публичный адрес сервиса (RENDER_EXTERNAL_URL) добавляется в CORS автоматически
+      - key: CORS_ORIGINS
+        value: http://localhost:3000
+      - key: ADMIN_EMAIL
+        value: admin@example.com
+      # Значение спросит Render при создании Blueprint — в репозиторий пароль не попадает
+      - key: ADMIN_PASSWORD
+        sync: false
+      - key: EMAIL_SEND_DELAY_SECONDS
+        value: "10"
+
+  - type: keyvalue
+    name: fastapi-redis
+    plan: free
+    region: frankfurt
+    maxmemoryPolicy: noeviction
+    ipAllowList: []  # доступ только из внутренней сети Render
+
+databases:
+  - name: fastapi-db
+    plan: free
+    region: frankfurt
+    databaseName: app_db
+    user: app
+    ipAllowList: []  # доступ только из внутренней сети Render

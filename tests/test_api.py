@@ -175,3 +175,11 @@ def test_postgres_url_normalized():
     s = Settings(DATABASE_URL="postgresql://u:p@db:5432/app")
     assert s.DATABASE_URL == "postgresql+psycopg://u:p@db:5432/app"
     assert Settings(DATABASE_URL="postgres://u:p@h/x").DATABASE_URL.startswith("postgresql+psycopg://")
+
+
+def test_render_url_added_to_cors():
+    from app.config import Settings
+
+    s = Settings(CORS_ORIGINS="http://localhost:3000", RENDER_EXTERNAL_URL="https://app.onrender.com/")
+    assert s.cors_origins_list == ["http://localhost:3000", "https://app.onrender.com"]
+    assert Settings(CORS_ORIGINS="http://localhost:3000").cors_origins_list == ["http://localhost:3000"]

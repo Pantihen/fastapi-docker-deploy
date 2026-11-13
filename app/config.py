@@ -46,9 +46,15 @@ class Settings(BaseSettings):
                 return "postgresql+psycopg://" + value[len(prefix):]
         return value
 
+    # Render сам задаёт публичный адрес сервиса, например https://my-app.onrender.com
+    RENDER_EXTERNAL_URL: str | None = None
+
     @property
     def cors_origins_list(self) -> list[str]:
-        return [o.strip() for o in self.CORS_ORIGINS.split(",") if o.strip()]
+        origins = [o.strip() for o in self.CORS_ORIGINS.split(",") if o.strip()]
+        if self.RENDER_EXTERNAL_URL and self.RENDER_EXTERNAL_URL not in origins:
+            origins.append(self.RENDER_EXTERNAL_URL.rstrip("/"))
+        return origins
 
 
 @lru_cache

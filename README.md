@@ -1,18 +1,20 @@
 # FastAPI App: Docker, CI/CD, деплой
 
 FastAPI-приложение из прошлых разделов курса (JWT и роли, фоновые задачи Celery, GraphQL),
-упакованное в Docker вместе с PostgreSQL и Redis. Тесты запускаются в GitHub Actions, приложение развёрнуто на Railway.
+упакованное в Docker вместе с PostgreSQL и Redis. Тесты запускаются в GitHub Actions, приложение развёрнуто на Render.
 
 ## 🌐 Публичный адрес
 
 | | |
 |---|---|
-| Приложение | **https://ВАШ-АДРЕС.up.railway.app** |
-| Swagger UI | https://ВАШ-АДРЕС.up.railway.app/docs |
-| Health-check | https://ВАШ-АДРЕС.up.railway.app/health |
-| GraphiQL | https://ВАШ-АДРЕС.up.railway.app/graphql |
+| Приложение | **https://ВАШ-АДРЕС.onrender.com** |
+| Swagger UI | https://ВАШ-АДРЕС.onrender.com/docs |
+| Health-check | https://ВАШ-АДРЕС.onrender.com/health |
+| GraphiQL | https://ВАШ-АДРЕС.onrender.com/graphql |
+| CI | https://github.com/Pantihen/fastapi-docker-deploy/actions |
 
-> Замените `ВАШ-АДРЕС` на домен, который выдаст Railway (раздел «Деплой на Railway», шаг 5).
+> Приложение работает на бесплатном тарифе Render и засыпает после 15 минут без запросов.
+> Первое открытие после простоя занимает около минуты, дальше всё работает быстро.
 
 ---
 
@@ -72,7 +74,7 @@ CELERY_BROKER_URL=redis://redis:6379/0
   CMD ["sh", "-c", "uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000} --proxy-headers --forwarded-allow-ips='*'"]
   ```
   - `--host 0.0.0.0` нужен, чтобы приложение слушало все интерфейсы. С `127.0.0.1` оно было бы недоступно снаружи контейнера.
-  - `${PORT:-8000}`: Railway передаёт порт в переменной `PORT`, локально используется 8000.
+  - `${PORT:-8000}`: хостинг (Render) передаёт порт в переменной `PORT`, локально используется 8000.
   - `--proxy-headers` нужен, чтобы брать реальный IP клиента из `X-Forwarded-For`. Без этого флага rate limit `/auth/login` считал бы всех пользователей одним IP прокси хостинга.
 
 ---
@@ -83,38 +85,52 @@ CELERY_BROKER_URL=redis://redis:6379/0
 
 | Job | Что делает |
 |---|---|
-| `test` | поднимает PostgreSQL как service-контейнер, ставит зависимости и запускает `pytest -v` (33 теста) на настоящем PostgreSQL |
+| `test` | поднимает PostgreSQL как service-контейнер, ставит зависимости и запускает `pytest -v` (34 теста) на настоящем PostgreSQL |
 | `docker` | после успешных тестов выполняет `docker compose up --build --wait`, проверяет `/health` (БД и Redis `ok`) и `/docs`, затем `docker compose down` |
 
 Результаты видны на вкладке **Actions** репозитория.
 
 ---
 
-## Деплой на Railway
+## Деплой на Render
 
-В репозитории есть `railway.json`: Railway собирает образ из `Dockerfile` и проверяет `/health` перед переключением трафика на новую версию.
+Деплой описан как код в `render.yaml` (Render Blueprint). Там три ресурса, все на бесплатном тарифе в регионе Frankfurt:
 
-1. **New Project → Deploy from GitHub repo** и выберите этот репозиторий. Railway найдёт `railway.json` и соберёт `Dockerfile`.
-2. В проекте: **+ Create → Database → PostgreSQL**, затем **+ Create → Database → Redis**.
-3. В сервисе приложения откройте **Variables** и добавьте:
-   ```env
-   DATABASE_URL=${{Postgres.DATABASE_URL}}
-   CELERY_BROKER_URL=${{Redis.REDIS_URL}}/0
-   CELERY_RESULT_BACKEND=${{Redis.REDIS_URL}}/1
-   SECRET_KEY=<длинная случайная строка: python -c "import secrets; print(secrets.token_hex(32))">
-   CORS_ORIGINS=https://ВАШ-АДРЕС.up.railway.app
-   ADMIN_EMAIL=admin@example.com
-   ADMIN_PASSWORD=<свой пароль>
-   ```
-   Конструкция `${{Postgres.DATABASE_URL}}` — ссылка на переменную другого сервиса Railway, и там тоже
-   используется внутреннее имя сервиса, а не localhost. Адрес вида `postgresql://...` приложение
-   само переводит в `postgresql+psycopg://...` (`app/config.py`).
-4. *(необязательно, для фоновых задач)* **+ Create → GitHub Repo** с тем же репозиторием. Это второй сервис, воркер.
-   В его **Settings → Config-as-code** укажите путь `railway.worker.json` и добавьте те же переменные.
-5. В сервисе приложения: **Settings → Networking → Generate Domain**. Полученный адрес впишите в начало этого README и в `CORS_ORIGINS`.
-6. Проверьте `https://ВАШ-АДРЕС.up.railway.app/docs` и `/health`.
+| Ресурс | Тип | Аналог в docker compose |
+|---|---|---|
+| `fastapi-docker-deploy` | Web Service, сборка из `Dockerfile` | `app` + `worker` |
+| `fastapi-db` | PostgreSQL | `db` |
+| `fastapi-redis` | Key Value (совместим с Redis) | `redis` |
 
-Railway автоматически пересобирает проект при каждом push в `main`.
+Переменные окружения связывают сервисы через их **внутренние адреса Render**, так же как имена сервисов в `.env.docker`:
+
+```yaml
+- key: DATABASE_URL
+  fromDatabase: { name: fastapi-db, property: connectionString }
+- key: CELERY_BROKER_URL
+  fromService: { type: keyvalue, name: fastapi-redis, property: connectionString }
+```
+
+- `SECRET_KEY` Render генерирует сам (`generateValue: true`).
+- `ADMIN_PASSWORD` вводится в Dashboard при создании (`sync: false`), поэтому в репозиторий не попадает.
+- Публичный адрес Render передаёт в `RENDER_EXTERNAL_URL`, и приложение само добавляет его в CORS (`app/config.py`).
+- Адрес БД вида `postgresql://...` приложение переводит в `postgresql+psycopg://...`.
+- Render проверяет `/health` перед тем, как переключить трафик на новую версию.
+
+Ограничения бесплатного тарифа:
+- **Нет Background Worker**, поэтому Celery-воркер запускается в том же контейнере, что и API (`dockerCommand` в `render.yaml`, `--pool=solo`). Вместе они занимают около 130 МБ из 512 МБ.
+- Сервис засыпает после 15 минут простоя и просыпается примерно за минуту.
+- Бесплатная PostgreSQL удаляется через 30 дней после создания.
+
+### Как развернуть
+
+1. Войдите на https://dashboard.render.com через GitHub.
+2. **New → Blueprint** и выберите репозиторий `fastapi-docker-deploy` (при первом входе дайте Render доступ к нему).
+3. Render прочитает `render.yaml` и покажет три ресурса. Введите `ADMIN_PASSWORD` и нажмите **Deploy Blueprint**.
+4. Дождитесь статуса **Live**: первая сборка идёт примерно 5 минут. Адрес вида `https://fastapi-docker-deploy.onrender.com` будет вверху страницы сервиса.
+5. Проверьте `/health` и `/docs`.
+
+Дальше каждый push в `main` запускает CI в GitHub Actions и автодеплой на Render.
 
 ---
 
@@ -143,8 +159,7 @@ Dockerfile                 образ приложения (тот же обра
 docker-compose.yml         app, worker, db (PostgreSQL), redis
 .env.docker                переменные для compose — имена сервисов вместо localhost
 .env.example               переменные для запуска без Docker
-railway.json               деплой сервиса приложения на Railway
-railway.worker.json        деплой Celery-воркера на Railway
+render.yaml                деплой на Render: web + PostgreSQL + Key Value (Redis)
 app/
   main.py                  FastAPI, CORS, rate limiting, роутеры, GraphQL
   config.py                настройки; нормализация postgresql:// → postgresql+psycopg://
@@ -156,7 +171,7 @@ app/
   routers/tasks.py         /tasks/send-email, /tasks/{id} (Celery)
   gql/schema.py            GraphQL (strawberry)
   celery_app.py, tasks.py  Celery
-tests/                     33 теста
+tests/                     34 теста
 postman_collection.json
 ```
 
