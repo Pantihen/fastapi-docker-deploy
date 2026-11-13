@@ -3,18 +3,23 @@
 FastAPI-приложение из прошлых разделов курса (JWT и роли, фоновые задачи Celery, GraphQL),
 упакованное в Docker вместе с PostgreSQL и Redis. Тесты запускаются в GitHub Actions.
 
-## Статус
+## 🌐 Публичный адрес
+
+Приложение развёрнуто на **Railway**: **https://fastapi-docker-deploy-production.up.railway.app**
 
 | | |
 |---|---|
+| Swagger UI | https://fastapi-docker-deploy-production.up.railway.app/docs |
+| Health-check | https://fastapi-docker-deploy-production.up.railway.app/health |
+| GraphiQL | https://fastapi-docker-deploy-production.up.railway.app/graphql |
 | Репозиторий | https://github.com/Pantihen/fastapi-docker-deploy |
 | CI (GitHub Actions) | https://github.com/Pantihen/fastapi-docker-deploy/actions |
-| Публичный деплой | **не развёрнут** |
 
-Конфигурация деплоя на Render подготовлена (`render.yaml`, раздел «Деплой на Render» ниже)
-и проверена по официальной JSON-схеме Render. Команда запуска контейнера для Render проверена локально.
-Приложение не развёрнуто: на аккаунте Render бесплатные PostgreSQL и Key Value уже заняты
-другим проектом, а на бесплатном тарифе разрешено только по одному такому ресурсу.
+`/health` на сервере отвечает так (приложение подключено к PostgreSQL и Redis):
+
+```json
+{"status":"ok","database":"ok","database_backend":"postgresql","redis":"ok"}
+```
 
 ---
 
@@ -92,7 +97,50 @@ CELERY_BROKER_URL=redis://redis:6379/0
 
 ---
 
-## Деплой на Render
+## Деплой на Railway
+
+Проект на Railway состоит из трёх сервисов, это аналог `docker-compose.yml`:
+
+| Сервис Railway | Что это | Аналог в docker compose |
+|---|---|---|
+| `fastapi-docker-deploy` | сборка из `Dockerfile` этого репозитория | `app` + `worker` |
+| `fastapi-db` | PostgreSQL | `db` |
+| `Redis` | Redis | `redis` |
+
+Переменные сервиса приложения:
+
+```env
+DATABASE_URL=${{fastapi-db.DATABASE_URL}}   # → postgresql://...@fastapi-db.railway.internal:5432/...
+REDIS_URL=${{Redis.REDIS_URL}}              # → redis://...@redis.railway.internal:6379
+PORT=8000
+CORS_ORIGINS=http://localhost:3000,https://${{RAILWAY_PUBLIC_DOMAIN}}
+SECRET_KEY=<случайная строка>
+ADMIN_EMAIL=admin@example.com
+ADMIN_PASSWORD=<задан в Railway, в репозитории его нет>
+```
+
+Как и в `.env.docker`, сервисы обращаются друг к другу **по именам во внутренней сети**
+(`fastapi-db.railway.internal`, `redis.railway.internal`), а не через localhost. Конструкции
+`${{сервис.ПЕРЕМЕННАЯ}}` Railway сам подставляет при деплое.
+
+Настройки сервиса (они же лежат в `railway.json`):
+- **Start Command:** `sh scripts/start-web-and-worker.sh`. Скрипт запускает в одном контейнере Celery-воркер
+  (`--pool=solo`) и `uvicorn --host 0.0.0.0 --port $PORT`, поэтому отдельный платный сервис для воркера не нужен.
+- **Healthcheck Path:** `/health`. Новая версия получает трафик, только если отвечает `/health`.
+- **Публичный домен** смотрит на порт 8000.
+
+Каждый push в `main` запускает CI в GitHub Actions и автоматический деплой на Railway.
+
+### Как развернуть с нуля
+
+1. https://railway.com → **New Project → GitHub Repository** → `fastapi-docker-deploy`.
+2. **+ Create → Database → PostgreSQL** и **+ Create → Database → Redis**.
+3. В сервисе приложения: **Variables** (список выше), **Settings → Deploy** (Start Command и Healthcheck Path),
+   **Settings → Networking → Generate Domain** (порт 8000).
+
+---
+
+## Альтернатива: деплой на Render
 
 Деплой описан как код в `render.yaml` (Render Blueprint). Все ресурсы на бесплатном тарифе в регионе Frankfurt:
 
@@ -165,7 +213,9 @@ Dockerfile                 образ приложения (тот же обра
 docker-compose.yml         app, worker, db (PostgreSQL), redis
 .env.docker                переменные для compose — имена сервисов вместо localhost
 .env.example               переменные для запуска без Docker
-render.yaml                деплой на Render: web + PostgreSQL (+ существующий Key Value)
+railway.json               настройки сервиса на Railway (команда запуска, healthcheck)
+render.yaml                альтернативный деплой на Render (Blueprint)
+scripts/start-web-and-worker.sh  API + Celery-воркер в одном контейнере (для хостинга)
 app/
   main.py                  FastAPI, CORS, rate limiting, роутеры, GraphQL
   config.py                настройки; нормализация postgresql:// → postgresql+psycopg://
