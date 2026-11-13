@@ -1,7 +1,14 @@
 from functools import lru_cache
+from urllib.parse import urlsplit, urlunsplit
 
-from pydantic import field_validator
+from pydantic import field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+def _redis_url_with_db(url: str, db: int) -> str:
+    """redis://host:6379 или redis://host:6379/0 → redis://host:6379/<db> (логин, пароль и параметры сохраняются)."""
+    parts = urlsplit(url.strip())
+    return urlunsplit((parts.scheme, parts.netloc, f"/{db}", parts.query, parts.fragment))
 
 
 class Settings(BaseSettings):
@@ -21,8 +28,13 @@ class Settings(BaseSettings):
     ADMIN_EMAIL: str | None = None
     ADMIN_PASSWORD: str | None = None
 
-    CELERY_BROKER_URL: str = "redis://localhost:6379/0"
-    CELERY_RESULT_BACKEND: str = "redis://localhost:6379/1"
+    # Явные адреса брокера и хранилища результатов. Если не заданы, они строятся
+    # из REDIS_URL: тот же Redis, но разные номера баз (CELERY_*_DB).
+    CELERY_BROKER_URL: str | None = None
+    CELERY_RESULT_BACKEND: str | None = None
+    REDIS_URL: str = "redis://localhost:6379"
+    CELERY_BROKER_DB: int = 0
+    CELERY_RESULT_DB: int = 1
     # В тестах True: задача выполняется сразу в том же процессе, без воркера и Redis
     CELERY_TASK_ALWAYS_EAGER: bool = False
     EMAIL_SEND_DELAY_SECONDS: float = 10
@@ -45,6 +57,14 @@ class Settings(BaseSettings):
             if value.startswith(prefix):
                 return "postgresql+psycopg://" + value[len(prefix):]
         return value
+
+    @model_validator(mode="after")
+    def build_celery_urls(self) -> "Settings":
+        if self.CELERY_BROKER_URL is None:
+            self.CELERY_BROKER_URL = _redis_url_with_db(self.REDIS_URL, self.CELERY_BROKER_DB)
+        if self.CELERY_RESULT_BACKEND is None:
+            self.CELERY_RESULT_BACKEND = _redis_url_with_db(self.REDIS_URL, self.CELERY_RESULT_DB)
+        return self
 
     # Render сам задаёт публичный адрес сервиса, например https://my-app.onrender.com
     RENDER_EXTERNAL_URL: str | None = None

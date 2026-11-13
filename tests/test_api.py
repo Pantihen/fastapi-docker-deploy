@@ -183,3 +183,24 @@ def test_render_url_added_to_cors():
     s = Settings(CORS_ORIGINS="http://localhost:3000", RENDER_EXTERNAL_URL="https://app.onrender.com/")
     assert s.cors_origins_list == ["http://localhost:3000", "https://app.onrender.com"]
     assert Settings(CORS_ORIGINS="http://localhost:3000").cors_origins_list == ["http://localhost:3000"]
+
+
+def test_celery_urls_built_from_redis_url(monkeypatch):
+    from app.config import Settings
+
+    # conftest задаёт memory:// для тестов — здесь проверяем поведение без этих переменных
+    monkeypatch.delenv("CELERY_BROKER_URL", raising=False)
+    monkeypatch.delenv("CELERY_RESULT_BACKEND", raising=False)
+
+    s = Settings(REDIS_URL="redis://red-abc123:6379", CELERY_BROKER_DB=2, CELERY_RESULT_DB=3)
+    assert s.CELERY_BROKER_URL == "redis://red-abc123:6379/2"
+    assert s.CELERY_RESULT_BACKEND == "redis://red-abc123:6379/3"
+
+    # пароль и существующий номер базы в URL: пароль сохраняется, база заменяется
+    s = Settings(REDIS_URL="rediss://user:pa%40ss@host:6379/0?ssl_cert_reqs=required", CELERY_BROKER_DB=2)
+    assert s.CELERY_BROKER_URL == "rediss://user:pa%40ss@host:6379/2?ssl_cert_reqs=required"
+
+    # явно заданные адреса важнее REDIS_URL
+    s = Settings(REDIS_URL="redis://x:6379", CELERY_BROKER_URL="redis://y:6379/5")
+    assert s.CELERY_BROKER_URL == "redis://y:6379/5"
+    assert s.CELERY_RESULT_BACKEND == "redis://x:6379/1"

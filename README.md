@@ -85,7 +85,7 @@ CELERY_BROKER_URL=redis://redis:6379/0
 
 | Job | Что делает |
 |---|---|
-| `test` | поднимает PostgreSQL как service-контейнер, ставит зависимости и запускает `pytest -v` (34 теста) на настоящем PostgreSQL |
+| `test` | поднимает PostgreSQL как service-контейнер, ставит зависимости и запускает `pytest -v` (35 тестов) на настоящем PostgreSQL |
 | `docker` | после успешных тестов выполняет `docker compose up --build --wait`, проверяет `/health` (БД и Redis `ok`) и `/docs`, затем `docker compose down` |
 
 Результаты видны на вкладке **Actions** репозитория.
@@ -94,21 +94,25 @@ CELERY_BROKER_URL=redis://redis:6379/0
 
 ## Деплой на Render
 
-Деплой описан как код в `render.yaml` (Render Blueprint). Там три ресурса, все на бесплатном тарифе в регионе Frankfurt:
+Деплой описан как код в `render.yaml` (Render Blueprint). Все ресурсы на бесплатном тарифе в регионе Frankfurt:
 
 | Ресурс | Тип | Аналог в docker compose |
 |---|---|---|
 | `fastapi-docker-deploy` | Web Service, сборка из `Dockerfile` | `app` + `worker` |
 | `fastapi-db` | PostgreSQL | `db` |
-| `fastapi-redis` | Key Value (совместим с Redis) | `redis` |
+| уже существующий Key Value аккаунта | Key Value (совместим с Redis) | `redis` |
+
+Бесплатный Key Value на аккаунте Render может быть только один. Поэтому проект подключается к уже
+существующему: его Internal URL задаётся в переменной `REDIS_URL`. Чтобы не пересекаться с другим
+проектом, этот пишет в отдельные базы Redis: брокер в `/2` (`CELERY_BROKER_DB`), результаты в `/3` (`CELERY_RESULT_DB`).
 
 Переменные окружения связывают сервисы через их **внутренние адреса Render**, так же как имена сервисов в `.env.docker`:
 
 ```yaml
 - key: DATABASE_URL
   fromDatabase: { name: fastapi-db, property: connectionString }
-- key: CELERY_BROKER_URL
-  fromService: { type: keyvalue, name: fastapi-redis, property: connectionString }
+- key: REDIS_URL          # Internal URL Key Value, вводится в Dashboard
+  sync: false
 ```
 
 - `SECRET_KEY` Render генерирует сам (`generateValue: true`).
@@ -126,7 +130,9 @@ CELERY_BROKER_URL=redis://redis:6379/0
 
 1. Войдите на https://dashboard.render.com через GitHub.
 2. **New → Blueprint** и выберите репозиторий `fastapi-docker-deploy` (при первом входе дайте Render доступ к нему).
-3. Render прочитает `render.yaml` и покажет три ресурса. Введите `ADMIN_PASSWORD` и нажмите **Deploy Blueprint**.
+3. Render прочитает `render.yaml` и покажет ресурсы. Введите `ADMIN_PASSWORD`, а в `REDIS_URL` вставьте
+   **Internal Key Value URL** со страницы своего Key Value (он должен быть в регионе Frankfurt).
+   Нажмите **Deploy Blueprint**.
 4. Дождитесь статуса **Live**: первая сборка идёт примерно 5 минут. Адрес вида `https://fastapi-docker-deploy.onrender.com` будет вверху страницы сервиса.
 5. Проверьте `/health` и `/docs`.
 
@@ -159,7 +165,7 @@ Dockerfile                 образ приложения (тот же обра
 docker-compose.yml         app, worker, db (PostgreSQL), redis
 .env.docker                переменные для compose — имена сервисов вместо localhost
 .env.example               переменные для запуска без Docker
-render.yaml                деплой на Render: web + PostgreSQL + Key Value (Redis)
+render.yaml                деплой на Render: web + PostgreSQL (+ существующий Key Value)
 app/
   main.py                  FastAPI, CORS, rate limiting, роутеры, GraphQL
   config.py                настройки; нормализация postgresql:// → postgresql+psycopg://
@@ -171,7 +177,7 @@ app/
   routers/tasks.py         /tasks/send-email, /tasks/{id} (Celery)
   gql/schema.py            GraphQL (strawberry)
   celery_app.py, tasks.py  Celery
-tests/                     34 теста
+tests/                     35 тестов
 postman_collection.json
 ```
 
